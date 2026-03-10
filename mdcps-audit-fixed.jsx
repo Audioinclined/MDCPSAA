@@ -337,7 +337,7 @@ function MobileForm({ onSubmit, prefillSchool, existingTags = [] }) {
   const canSubmit = !!form.submittedBy;
 
   function toggleIssue(issue) { setForm(f => ({ ...f,repairIssues:f.repairIssues.includes(issue)?f.repairIssues.filter(x=>x!==issue):[...f.repairIssues,issue] })); }
-  function doSubmit() { onSubmit({ ...form,photos,id:`sub-${Date.now()}`,submittedAt:new Date().toISOString(),urgent:form.condition==="unplayable",techAction:null,techNotes:"" }); setSubmitted(true); }
+ function doSubmit() { onSubmit({ ...form,photos,id:`sub-${Date.now()}`,submittedAt:new Date().toISOString(),techAction:null,techNotes:"" }); setSubmitted(true); }
   function reset() { setSubmitted(false);setStep(1);setPhotos([]);setForm({ school:prefillSchool||"",instrumentType:"",assetTag:"",condition:"",repairIssues:[],notes:"",submittedBy:"" }); }
 
   if (submitted) return (
@@ -1237,7 +1237,6 @@ function QRDemo({ onScan }) {
 
 // ─── Root ─────────────────────────────────────────────────────────────────────
 const STORAGE_KEY = "mdcps_audit_submissions_v1";
-const DEMO_KEY    = "mdcps_audit_demo_loaded_v1";
 
 function getInitialView() {
   try {
