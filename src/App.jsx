@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "@supabase/supabase-js";
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend,
@@ -9,9 +9,6 @@ const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
   import.meta.env.VITE_SUPABASE_ANON_KEY
 );
-  PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend,
-} from "recharts";
 
 // ─── Seed Data ───────────────────────────────────────────────────────────────
 const SCHOOLS = [
@@ -1245,9 +1242,6 @@ function QRDemo({ onScan }) {
 }
 
 // ─── Root ─────────────────────────────────────────────────────────────────────
-const STORAGE_KEY = "mdcps_audit_submissions_v1";
-const DEMO_KEY    = "mdcps_audit_demo_loaded_v1";
-
 function getInitialView() {
   try {
     const params = new URLSearchParams(window.location.search);
@@ -1268,16 +1262,8 @@ function getPrefillSchool() {
 export default function App() {
   const [view, setView] = useState(getInitialView);
   const prefillSchool = getPrefillSchool();
-  const [submissions, setSubmissions] = useState(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) return JSON.parse(saved);
-    } catch (_) {}
-    // First load: seed demo data so the dashboard isn't empty
-    const demo = generateSeedData();
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(demo)); } catch (_) {}
-    return demo;
-  });
+  const [submissions, setSubmissions] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const link = document.createElement("link");
@@ -1296,32 +1282,80 @@ export default function App() {
       script.src = "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js";
       document.head.appendChild(script);
     }
+
+    async function loadData() {
+      const { data } = await supabase
+        .from("submissions")
+        .select("*")
+        .order("submitted_at", { ascending: false });
+      if (data) setSubmissions(data.map(r => ({
+        id: r.id,
+        school: r.school,
+        instrumentType: r.instrument_type,
+        assetTag: r.asset_tag,
+        condition: r.condition,
+        repairIssues: r.repair_issues || [],
+        notes: r.notes,
+        submittedBy: r.submitted_by,
+        submittedAt: r.submitted_at,
+        urgent: r.urgent,
+        techAction: r.tech_action,
+        techNotes: r.tech_notes,
+        actualCost: r.actual_cost,
+        photos: r.photos || [],
+      })));
+      setLoading(false);
+    }
+    loadData();
   }, []);
 
-  function persist(next) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch (_) {}
-    return next;
+  async function handleSubmit(entry) {
+    const { data } = await supabase.from("submissions").insert([{
+      id: entry.id,
+      school: entry.school,
+      instrument_type: entry.instrumentType,
+      asset_tag: entry.assetTag,
+      condition: entry.condition,
+      repair_issues: entry.repairIssues,
+      notes: entry.notes,
+      submitted_by: entry.submittedBy,
+      submitted_at: entry.submittedAt,
+      urgent: entry.urgent || false,
+      tech_action: null,
+      tech_notes: "",
+      actual_cost: null,
+      photos: [],
+    }]).select();
+    if (data) setSubmissions(p => [...data.map(r => ({
+      id: r.id, school: r.school, instrumentType: r.instrument_type,
+      assetTag: r.asset_tag, condition: r.condition,
+      repairIssues: r.repair_issues || [], notes: r.notes,
+      submittedBy: r.submitted_by, submittedAt: r.submitted_at,
+      urgent: r.urgent, techAction: r.tech_action,
+      techNotes: r.tech_notes, actualCost: r.actual_cost, photos: r.photos || [],
+    })), ...p]);
   }
-  function handleSubmit(entry) {
-    setSubmissions(p => {
-      const next = [entry, ...p];
-      return persist(next);
-    });
+
+  async function handleUpdateTech(id, updates) {
+    await supabase.from("submissions").update({
+      tech_action: updates.techAction,
+      tech_notes: updates.techNotes,
+      actual_cost: updates.actualCost,
+    }).eq("id", id);
+    setSubmissions(p => p.map(s => s.id === id ? { ...s, ...updates } : s));
   }
-  function handleUpdateTech(id, updates) {
-    setSubmissions(p => {
-      const next = p.map(s => s.id === id ? { ...s, ...updates } : s);
-      return persist(next);
-    });
-  }
+
   function handleClearData() {
-    if (!window.confirm("Clear ALL audit data and reload demo data? This cannot be undone.")) return;
-    const demo = generateSeedData();
-    persist(demo);
-    setSubmissions(demo);
+    alert("To clear data, go to your Supabase dashboard and delete rows from the submissions table.");
   }
 
   const NAV = [{ id:"qr",label:"🔲 QR" },{ id:"form",label:"📱 Submit" },{ id:"tech",label:"🔧 Tech" },{ id:"dashboard",label:"📊 District" }];
+
+  if (loading) return (
+    <div style={{ minHeight:"100vh",background:"#06101a",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif",color:"rgba(255,255,255,0.5)",fontSize:"0.9rem" }}>
+      Loading audit data...
+    </div>
+  );
 
   return (
     <div>
