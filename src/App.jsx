@@ -53,6 +53,35 @@ const SCHOOL_ENROLLMENT = {
   "Design & Architecture Senior High School (DASH)":130,"Young Men's Preparatory Academy":110,
 };
 
+// ─── URL routing helpers ──────────────────────────────────────────────────────
+// Routes:
+//   /           → QR hub / landing
+//   /?view=form → Auditor submission form (optionally ?school=...)
+//   /?view=tech → Repair tech portal (PIN-protected)
+//   /?view=dashboard → District dashboard (PIN-protected)
+//
+// For pilot school QR: /?view=form&school=Miami+Edison+Senior+High+School
+
+function getInitialView() {
+  try {
+    const p = new URLSearchParams(window.location.search);
+    const v = p.get("view");
+    if (["form","tech","dashboard"].includes(v)) return v;
+  } catch (_) {}
+  return "qr";
+}
+function getPrefillSchool() {
+  try { return new URLSearchParams(window.location.search).get("school") || ""; }
+  catch (_) { return ""; }
+}
+function buildUrl(view, school) {
+  const base = window.location.origin + window.location.pathname;
+  const params = new URLSearchParams({ view });
+  if (school) params.set("school", school);
+  return `${base}?${params.toString()}`;
+}
+
+// ─── Utilities ────────────────────────────────────────────────────────────────
 function getRepairCost(instrument, condition) {
   const c = REPAIR_COSTS[instrument]||{fair:100,poor:250,replace:500};
   if(condition==="fair") return c.fair;
@@ -75,6 +104,7 @@ const inputStyle = {...fieldBase,marginBottom:"0.1rem"};
 const selectStyle = {...fieldBase,cursor:"pointer",marginBottom:"0.1rem",backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23f59e0b' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 0.9rem center",paddingRight:"2.5rem"};
 const btnStyle = (active,color="#f59e0b",textColor=null) => ({display:"block",width:"100%",marginTop:"1.25rem",background:active?color:"#1a2a3a",color:active?(textColor||(color==="#f59e0b"?"#000":"#fff")):"#445",border:"none",borderRadius:"12px",padding:"0.9rem",fontSize:"0.95rem",fontWeight:700,cursor:active?"pointer":"not-allowed",transition:"all 0.2s",fontFamily:F});
 
+// ─── Supabase data loader ─────────────────────────────────────────────────────
 async function loadData() {
   const {data:instruments,error:iErr} = await supabase.from("instruments").select("*");
   if(iErr||!instruments) return [];
@@ -107,6 +137,7 @@ async function loadData() {
   });
 }
 
+// ─── Photo helpers ────────────────────────────────────────────────────────────
 function PhotoUploader({photos,onChange}) {
   const fileRef = useRef(null);
   function handleFiles(e) {
@@ -161,7 +192,169 @@ function PhotoViewer({photos,onClose}) {
   );
 }
 
-function MobileForm({onSubmit,prefillSchool,existingTags}) {
+// ─── QR Code component ────────────────────────────────────────────────────────
+function QRCodeBox({url, color="#0a1628", size=110}) {
+  const ref = useRef(null);
+  useEffect(()=>{
+    if(!ref.current) return;
+    ref.current.innerHTML = "";
+    function tryGen() {
+      if(window.QRCode) {
+        new window.QRCode(ref.current,{text:url,width:size,height:size,colorDark:color,colorLight:"#ffffff",correctLevel:window.QRCode.CorrectLevel.M});
+      } else { setTimeout(tryGen, 200); }
+    }
+    tryGen();
+  },[url,color,size]);
+  return <div ref={ref} style={{display:"flex",justifyContent:"center",alignItems:"center"}}/>;
+}
+
+// ─── QR Hub / Landing ─────────────────────────────────────────────────────────
+// Shows all three QR codes with copy-link buttons.
+// The pilot school QR links directly to the form pre-filled with Miami Edison.
+function QRHub() {
+  const [copied, setCopied] = useState(null);
+
+  const formUrl       = buildUrl("form");
+  const techUrl       = buildUrl("tech");
+  const dashUrl       = buildUrl("dashboard");
+  const edisonUrl     = buildUrl("form", "Miami Edison Senior High School");
+
+  function copyLink(url, key) {
+    navigator.clipboard.writeText(url).then(()=>{
+      setCopied(key);
+      setTimeout(()=>setCopied(null), 2000);
+    });
+  }
+
+  const cards = [
+    {
+      key:"form", icon:"📋", label:"Auditor Form", sub:"For music teachers & staff submitting instrument audits",
+      url:formUrl, color:"#f59e0b", textColor:"#000",
+      action:()=>window.open(formUrl,"_self"),
+    },
+    {
+      key:"edison", icon:"🎷", label:"Miami Edison Pilot", sub:"Pre-filled for Miami Edison Senior High School",
+      url:edisonUrl, color:"#10b981", textColor:"#000",
+      action:()=>window.open(edisonUrl,"_self"),
+      badge:"PILOT",
+    },
+    {
+      key:"tech", icon:"🔧", label:"Repair Tech Portal", sub:"PIN-protected · For certified repair technicians only",
+      url:techUrl, color:"#a855f7", textColor:"#fff",
+      action:()=>window.open(techUrl,"_self"),
+    },
+    {
+      key:"dashboard", icon:"📊", label:"District Dashboard", sub:"PIN-protected · For MDCPS district administrators",
+      url:dashUrl, color:"#3b82f6", textColor:"#fff",
+      action:()=>window.open(dashUrl,"_self"),
+    },
+  ];
+
+  return (
+    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#050e1c 0%,#0b1e35 100%)",fontFamily:F,color:"white",padding:"2rem 1.25rem",paddingBottom:"3rem"}}>
+      <div style={{maxWidth:"480px",margin:"0 auto"}}>
+        <div style={{textAlign:"center",marginBottom:"2.5rem"}}>
+          <div style={{fontSize:"2.5rem",marginBottom:"0.5rem"}}>🎷</div>
+          <h1 style={{color:"#f59e0b",fontWeight:800,fontSize:"1.15rem",letterSpacing:"0.06em",margin:"0 0 0.3rem"}}>MDCPS INSTRUMENT AUDIT</h1>
+          <p style={{color:"rgba(255,255,255,0.35)",fontSize:"0.75rem",margin:0}}>Miami-Dade County Public Schools · Access Hub</p>
+        </div>
+
+        <div style={{display:"flex",flexDirection:"column",gap:"1rem"}}>
+          {cards.map(card=>(
+            <div key={card.key} style={{background:"rgba(255,255,255,0.04)",border:`1px solid ${card.color}30`,borderRadius:"18px",padding:"1.25rem",position:"relative",overflow:"hidden"}}>
+              {card.badge&&(
+                <div style={{position:"absolute",top:"1rem",right:"1rem",background:`${card.color}25`,color:card.color,fontSize:"0.6rem",fontWeight:800,letterSpacing:"0.08em",padding:"0.2rem 0.55rem",borderRadius:"20px",border:`1px solid ${card.color}40`}}>{card.badge}</div>
+              )}
+              <div style={{display:"flex",alignItems:"flex-start",gap:"0.85rem",marginBottom:"1rem"}}>
+                <span style={{fontSize:"1.5rem",flexShrink:0}}>{card.icon}</span>
+                <div>
+                  <div style={{fontWeight:800,fontSize:"0.9rem",marginBottom:"0.2rem"}}>{card.label}</div>
+                  <div style={{fontSize:"0.7rem",color:"rgba(255,255,255,0.4)",lineHeight:1.5}}>{card.sub}</div>
+                </div>
+              </div>
+
+              {/* QR code */}
+              <div style={{background:"white",borderRadius:"10px",padding:"0.75rem",display:"flex",justifyContent:"center",marginBottom:"0.85rem"}}>
+                <QRCodeBox url={card.url} color={card.color==="#f59e0b"?"#78350f":card.color==="#10b981"?"#064e3b":card.color==="#a855f7"?"#4a0090":"#1e3a8a"} size={100}/>
+              </div>
+
+              {/* URL display + copy */}
+              <div style={{background:"rgba(0,0,0,0.3)",borderRadius:"8px",padding:"0.5rem 0.75rem",marginBottom:"0.75rem",display:"flex",alignItems:"center",gap:"0.5rem",overflow:"hidden"}}>
+                <span style={{fontSize:"0.67rem",color:"rgba(255,255,255,0.3)",fontFamily:"monospace",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{card.url}</span>
+                <button onClick={()=>copyLink(card.url,card.key)}
+                  style={{flexShrink:0,background:"transparent",border:"none",color:copied===card.key?"#10b981":"rgba(255,255,255,0.4)",cursor:"pointer",fontSize:"0.72rem",fontWeight:700,fontFamily:F,padding:"0.15rem 0.35rem",borderRadius:"4px",transition:"color 0.2s"}}>
+                  {copied===card.key?"✓ Copied":"Copy"}
+                </button>
+              </div>
+
+              <button onClick={card.action}
+                style={{display:"block",width:"100%",background:card.color,color:card.textColor,border:"none",borderRadius:"10px",padding:"0.72rem",fontSize:"0.84rem",fontWeight:700,cursor:"pointer",fontFamily:F,transition:"opacity 0.15s"}}
+                onMouseEnter={e=>e.currentTarget.style.opacity="0.88"}
+                onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+                Open →
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div style={{marginTop:"2rem",background:"rgba(255,255,255,0.03)",borderRadius:"12px",padding:"1rem 1.1rem",border:"1px solid rgba(255,255,255,0.06)"}}>
+          <div style={{fontSize:"0.65rem",fontWeight:700,letterSpacing:"0.07em",color:"rgba(255,255,255,0.3)",marginBottom:"0.6rem"}}>URL REFERENCE</div>
+          {[
+            {label:"Auditor Form",url:"?view=form"},
+            {label:"Miami Edison Pilot",url:"?view=form&school=Miami+Edison+Senior+High+School"},
+            {label:"Tech Portal",url:"?view=tech"},
+            {label:"District Dashboard",url:"?view=dashboard"},
+          ].map(r=>(
+            <div key={r.label} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"0.4rem"}}>
+              <span style={{fontSize:"0.7rem",color:"rgba(255,255,255,0.5)"}}>{r.label}</span>
+              <span style={{fontSize:"0.67rem",fontFamily:"monospace",color:"rgba(255,255,255,0.3)"}}>{r.url}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── PIN Gate (shared by Tech and Dashboard) ──────────────────────────────────
+const TECH_PIN      = "2024";
+const DASHBOARD_PIN = "2024"; // Change independently as needed
+
+function PinGate({pinKey, pin, color, icon, title, subtitle, children}) {
+  const storageKey = `pin_ok_${pinKey}`;
+  const [unlocked, setUnlocked] = useState(()=>sessionStorage.getItem(storageKey)==="1");
+  const [input, setInput] = useState("");
+  const [error, setError] = useState(false);
+
+  function tryPin() {
+    if(input === pin) {
+      sessionStorage.setItem(storageKey, "1");
+      setUnlocked(true);
+    } else {
+      setError(true);
+      setInput("");
+      setTimeout(()=>setError(false), 1500);
+    }
+  }
+
+  if(unlocked) return children;
+  return (
+    <div style={{minHeight:"100vh",background:"#06101a",fontFamily:F,color:"white",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{maxWidth:"340px",width:"100%",padding:"2rem",textAlign:"center"}}>
+        <div style={{fontSize:"2.5rem",marginBottom:"1rem"}}>{icon}</div>
+        <div style={{fontWeight:800,color:color,fontSize:"1.1rem",marginBottom:"0.4rem"}}>{title}</div>
+        <div style={{opacity:0.45,fontSize:"0.8rem",marginBottom:"2rem"}}>{subtitle}</div>
+        <input type="password" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&tryPin()} placeholder="Enter PIN"
+          style={{...inputStyle,textAlign:"center",letterSpacing:"0.5rem",fontSize:"1.4rem",borderColor:error?"#ef4444":undefined}}/>
+        {error&&<div style={{color:"#ef4444",fontSize:"0.78rem",marginTop:"0.5rem"}}>Incorrect PIN</div>}
+        <button onClick={tryPin} style={btnStyle(true, color, color==="#f59e0b"?"#000":"#fff")}>🔓 Unlock</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Auditor Form (no nav, no cross-links) ────────────────────────────────────
+function MobileForm({onSubmit, prefillSchool, existingTags}) {
   const [step,setStep]=useState(1);
   const [photos,setPhotos]=useState([]);
   const [form,setForm]=useState({school:prefillSchool||"",instrumentType:"",assetTag:"",condition:"",repairIssues:[],notes:"",submittedBy:""});
@@ -204,6 +397,11 @@ function MobileForm({onSubmit,prefillSchool,existingTags}) {
           <span style={{fontSize:"1.25rem"}}>🎷</span>
           <span style={{color:"#f59e0b",fontWeight:800,fontSize:"0.9rem",letterSpacing:"0.06em"}}>MDCPS INSTRUMENT AUDIT</span>
         </div>
+        {prefillSchool&&(
+          <div style={{display:"inline-flex",alignItems:"center",gap:"0.4rem",background:"rgba(16,185,129,0.12)",border:"1px solid rgba(16,185,129,0.3)",borderRadius:"20px",padding:"0.25rem 0.75rem",marginBottom:"0.5rem"}}>
+            <span style={{fontSize:"0.65rem",color:"#10b981",fontWeight:700,letterSpacing:"0.05em"}}>📍 {prefillSchool}</span>
+          </div>
+        )}
         <p style={{color:"rgba(255,255,255,0.35)",fontSize:"0.72rem",margin:"0 0 1.25rem"}}>Miami-Dade County Public Schools</p>
         <div style={{display:"flex",gap:"6px",marginBottom:"1.5rem"}}>
           {["Instrument","Condition","Submit"].map((lbl,i)=>(
@@ -224,6 +422,9 @@ function MobileForm({onSubmit,prefillSchool,existingTags}) {
                 <option value="" style={{background:"#132030"}}>Select school...</option>
                 {SCHOOLS.map(s=><option key={s} value={s} style={{background:"#132030",color:"#e8f0ff"}}>{s}</option>)}
               </select>
+              {prefillSchool&&form.school===prefillSchool&&(
+                <div style={{fontSize:"0.7rem",color:"#10b981",marginTop:"0.3rem"}}>✓ Pre-filled from your school QR code</div>
+              )}
               <label style={labelStyle}>Instrument Type</label>
               <select value={form.instrumentType} onChange={e=>setForm(f=>({...f,instrumentType:e.target.value}))} style={selectStyle}>
                 <option value="" style={{background:"#132030"}}>Select instrument...</option>
@@ -296,8 +497,7 @@ function MobileForm({onSubmit,prefillSchool,existingTags}) {
   );
 }
 
-const TECH_PIN = "2024";
-
+// ─── Tech Portal ──────────────────────────────────────────────────────────────
 function TechPortalInner({instruments,onUpdateTech}) {
   const [filterAction,setFilterAction]=useState("all");
   const [selected,setSelected]=useState(null);
@@ -531,32 +731,7 @@ function TechPortalInner({instruments,onUpdateTech}) {
   );
 }
 
-function TechView({instruments,onUpdateTech}) {
-  const [pinUnlocked,setPinUnlocked]=useState(()=>sessionStorage.getItem("tech_pin_ok")==="1");
-  const [pinInput,setPinInput]=useState("");
-  const [pinError,setPinError]=useState(false);
-
-  function tryPin(){
-    if(pinInput===TECH_PIN){sessionStorage.setItem("tech_pin_ok","1");setPinUnlocked(true);}
-    else{setPinError(true);setPinInput("");setTimeout(()=>setPinError(false),1500);}
-  }
-
-  if(pinUnlocked) return <TechPortalInner instruments={instruments} onUpdateTech={onUpdateTech}/>;
-  return (
-    <div style={{minHeight:"100vh",background:"#06101a",fontFamily:F,color:"white",display:"flex",alignItems:"center",justifyContent:"center"}}>
-      <div style={{maxWidth:"340px",width:"100%",padding:"2rem",textAlign:"center"}}>
-        <div style={{fontSize:"2.5rem",marginBottom:"1rem"}}>🔒</div>
-        <div style={{fontWeight:800,color:"#a855f7",fontSize:"1.1rem",marginBottom:"0.4rem"}}>REPAIR TECH PORTAL</div>
-        <div style={{opacity:0.45,fontSize:"0.8rem",marginBottom:"2rem"}}>Restricted Access · Enter PIN to continue</div>
-        <input type="password" value={pinInput} onChange={e=>setPinInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&tryPin()} placeholder="Enter PIN"
-          style={{...inputStyle,textAlign:"center",letterSpacing:"0.5rem",fontSize:"1.4rem",borderColor:pinError?"#ef4444":undefined}}/>
-        {pinError&&<div style={{color:"#ef4444",fontSize:"0.78rem",marginTop:"0.5rem"}}>Incorrect PIN</div>}
-        <button onClick={tryPin} style={btnStyle(true,"#a855f7")}>🔓 Unlock Portal</button>
-      </div>
-    </div>
-  );
-}
-
+// ─── Dashboard ────────────────────────────────────────────────────────────────
 function Dashboard({instruments}) {
   const [tab,setTab]=useState("overview");
   const [filterSchool,setFilterSchool]=useState("All Schools");
@@ -927,59 +1102,17 @@ function Dashboard({instruments}) {
   );
 }
 
-function QRCodeBox({url,color="#0a1628",size=110}) {
-  const ref=useRef(null);
-  useEffect(()=>{
-    if(!ref.current) return;ref.current.innerHTML="";
-    function tryGen(){if(window.QRCode){new window.QRCode(ref.current,{text:url,width:size,height:size,colorDark:color,colorLight:"#ffffff",correctLevel:window.QRCode.CorrectLevel.M});}else{setTimeout(tryGen,200);}}
-    tryGen();
-  },[url,color,size]);
-  return <div ref={ref} style={{display:"flex",justifyContent:"center",alignItems:"center"}}/>;
-}
-
-function QRDemo({onScan}) {
-  const baseUrl=window.location.origin+window.location.pathname;
-  return (
-    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#050e1c 0%,#0b1e35 100%)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontFamily:F,padding:"2rem"}}>
-      <div style={{maxWidth:"380px",width:"100%"}}>
-        <div style={{textAlign:"center",marginBottom:"2rem"}}>
-          <div style={{fontSize:"2.25rem",marginBottom:"0.5rem"}}>🎷</div>
-          <h1 style={{color:"#f59e0b",fontWeight:800,fontSize:"1.15rem",letterSpacing:"0.05em",margin:"0 0 0.2rem"}}>MDCPS INSTRUMENT AUDIT</h1>
-          <p style={{color:"rgba(255,255,255,0.35)",fontSize:"0.75rem",margin:0}}>Miami-Dade County Public Schools</p>
-        </div>
-        <div style={{background:"rgba(245,158,11,0.06)",borderRadius:"18px",padding:"1.4rem",border:"1px solid rgba(245,158,11,0.18)",marginBottom:"0.85rem"}}>
-          <div style={{fontSize:"0.65rem",fontWeight:800,letterSpacing:"0.07em",color:"#f59e0b",marginBottom:"0.85rem"}}>📋 SCHOOL SUBMISSION QR</div>
-          <div style={{background:"white",borderRadius:"10px",padding:"0.85rem",display:"flex",justifyContent:"center",marginBottom:"0.75rem"}}>
-            <QRCodeBox url={`${baseUrl}?view=form`} color="#0a1628" size={110}/>
-          </div>
-          <p style={{color:"rgba(255,255,255,0.35)",fontSize:"0.7rem",margin:"0 0 0.65rem",textAlign:"center"}}>Scan to submit an instrument audit</p>
-          <button onClick={()=>onScan("form")} style={btnStyle(true)}>📱 Open Submission Form</button>
-        </div>
-        <div style={{background:"rgba(168,85,247,0.06)",borderRadius:"18px",padding:"1.4rem",border:"1px solid rgba(168,85,247,0.2)",marginBottom:"0.85rem"}}>
-          <div style={{fontSize:"0.65rem",fontWeight:800,letterSpacing:"0.07em",color:"#a855f7",marginBottom:"0.85rem"}}>🔧 REPAIR TECH QR — RESTRICTED</div>
-          <div style={{background:"white",borderRadius:"10px",padding:"0.85rem",display:"flex",justifyContent:"center",marginBottom:"0.75rem"}}>
-            <QRCodeBox url={`${baseUrl}?view=tech`} color="#4a0090" size={110}/>
-          </div>
-          <p style={{color:"rgba(255,255,255,0.35)",fontSize:"0.7rem",margin:"0 0 0.65rem",textAlign:"center"}}>For certified repair technicians only</p>
-          <button onClick={()=>onScan("tech")} style={btnStyle(true,"#a855f7")}>🔧 Open Tech Portal</button>
-        </div>
-        <button onClick={()=>onScan("dashboard")} style={{...btnStyle(true),background:"rgba(255,255,255,0.06)",color:"rgba(255,255,255,0.65)",marginTop:0}}>📊 District Dashboard</button>
-      </div>
-    </div>
-  );
-}
-
-function getInitialView(){try{const p=new URLSearchParams(window.location.search);const v=p.get("view");if(["form","tech","dashboard"].includes(v))return v;}catch(_){}return "qr";}
-function getPrefillSchool(){try{return new URLSearchParams(window.location.search).get("school")||"";}catch(_){return "";}}
-
+// ─── Root App ─────────────────────────────────────────────────────────────────
 export default function App() {
-  const [view,setView]=useState(getInitialView);
-  const prefillSchool=getPrefillSchool();
-  const [instruments,setInstruments]=useState([]);
-  const [loading,setLoading]=useState(true);
+  const [view]        = useState(getInitialView);
+  const prefillSchool  = getPrefillSchool();
+  const [instruments, setInstruments] = useState([]);
+  const [loading, setLoading]         = useState(true);
 
   useEffect(()=>{
-    const link=document.createElement("link");link.href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&display=swap";link.rel="stylesheet";document.head.appendChild(link);
+    const link=document.createElement("link");
+    link.href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&display=swap";
+    link.rel="stylesheet";document.head.appendChild(link);
     if(!window.XLSX){const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";document.head.appendChild(s);}
     if(!window.QRCode){const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js";document.head.appendChild(s);}
     loadData().then(data=>{setInstruments(data);setLoading(false);});
@@ -1005,23 +1138,16 @@ export default function App() {
   }
 
   const existingTags=instruments.map(i=>i.assetTag.toLowerCase());
-  const NAV=[{id:"qr",label:"🔲 QR"},{id:"form",label:"📱 Submit"},{id:"tech",label:"🔧 Tech"},{id:"dashboard",label:"📊 District"}];
 
-  if(loading) return <div style={{minHeight:"100vh",background:"#06101a",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif",color:"rgba(255,255,255,0.5)",fontSize:"0.9rem"}}>Loading audit data...</div>;
-
-  return (
-    <div>
-      {view!=="qr"&&(
-        <div style={{position:"fixed",bottom:"1.25rem",left:"50%",transform:"translateX(-50%)",display:"flex",gap:"0.35rem",background:"rgba(6,10,18,0.97)",borderRadius:"50px",padding:"0.32rem",zIndex:9999,border:"1px solid rgba(255,255,255,0.09)",backdropFilter:"blur(16px)",boxShadow:"0 4px 24px rgba(0,0,0,0.6)"}}>
-          {NAV.map(tab=>(
-            <button key={tab.id} onClick={()=>setView(tab.id)} style={{padding:"0.42rem 0.85rem",borderRadius:"40px",border:"none",cursor:"pointer",fontSize:"0.72rem",fontWeight:600,transition:"all 0.18s",fontFamily:F,background:view===tab.id?(tab.id==="tech"?"#a855f7":"#f59e0b"):"transparent",color:view===tab.id?(tab.id==="tech"?"#fff":"#000"):"rgba(255,255,255,0.38)"}}>{tab.label}</button>
-          ))}
-        </div>
-      )}
-      {view==="qr"&&<QRDemo onScan={setView}/>}
-      {view==="form"&&<MobileForm onSubmit={handleSubmit} prefillSchool={prefillSchool} existingTags={existingTags}/>}
-      {view==="tech"&&<TechView instruments={instruments} onUpdateTech={handleUpdateTech}/>}
-      {view==="dashboard"&&<Dashboard instruments={instruments}/>}
+  if(loading) return (
+    <div style={{minHeight:"100vh",background:"#06101a",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif",color:"rgba(255,255,255,0.5)",fontSize:"0.9rem"}}>
+      Loading audit data...
     </div>
   );
+
+  // Each view is fully isolated — no shared nav bar
+  if(view==="form")      return <MobileForm onSubmit={handleSubmit} prefillSchool={prefillSchool} existingTags={existingTags}/>;
+  if(view==="tech")      return <PinGate pinKey="tech" pin={TECH_PIN} color="#a855f7" icon="🔧" title="REPAIR TECH PORTAL" subtitle="Restricted Access · Enter PIN to continue"><TechPortalInner instruments={instruments} onUpdateTech={handleUpdateTech}/></PinGate>;
+  if(view==="dashboard") return <PinGate pinKey="dashboard" pin={DASHBOARD_PIN} color="#3b82f6" icon="📊" title="DISTRICT DASHBOARD" subtitle="Restricted Access · Enter PIN to continue"><Dashboard instruments={instruments}/></PinGate>;
+  return <QRHub/>;
 }
